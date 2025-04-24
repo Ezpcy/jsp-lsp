@@ -1,0 +1,38 @@
+{
+  "name": "jsp-lsp-vscode",
+  "version": "1.0.0",
+  "author": "ezpc",
+  "license": "ISC",
+  "description": "",
+  "main": "./out/extension.js",
+  "type": "commonjs",
+  "engines": {
+    "vscode": "^1.22.0"
+  },
+  "activationEvents": [
+    "onLanguage:jsp"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "jsp",
+        "aliases": [
+          "JSP"
+        ],
+        "extensions": [
+          ".jsp"
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "build": "npx tsc"
+  },
+  "dependencies": {
+    "@types/vscode": "^1.99.1",
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.1"
+  }
+}
