@@ -12,7 +12,7 @@ let client: LanguageClient;
 export function activate(ctx: ExtensionContext) {
     const exe =
         process.env.JSP_LSP_BIN ??
-        path.join(ctx.extensionPath, "..", "..", "target", "debug", "jsp-lsp");
+        path.join(ctx.extensionPath,  "..", "target", "debug", "jsp-lsp");
 
     const serverOptions: ServerOptions = {
         command: exe,

@@ -40,7 +40,7 @@ const node_1 = require("vscode-languageclient/node");
 let client;
 function activate(ctx) {
     var _a;
-    const exe = (_a = process.env.JSP_LSP_BIN) !== null && _a !== void 0 ? _a : path.join(ctx.extensionPath, "..", "..", "target", "debug", "jsp-lsp");
+    const exe = (_a = process.env.JSP_LSP_BIN) !== null && _a !== void 0 ? _a : path.join(ctx.extensionPath, "..", "target", "debug", "jsp-lsp");
     const serverOptions = {
         command: exe,
         args: ["--stdio"],
