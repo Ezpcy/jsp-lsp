@@ -1,0 +1,8 @@
+[package]
+name = "jsp-lsp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1.44.2", features = ["full"]}
+tower-lsp = "0.20.0"
