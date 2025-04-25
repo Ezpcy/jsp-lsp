@@ -378,6 +378,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "lsp-types 0.97.0",
+ "serde_json",
  "tokio",
  "tower-lsp",
 ]
