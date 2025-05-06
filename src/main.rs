@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::io::Write;
+
 use java_backend::jsp_syntax_validation::validate_jsp_tags;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
@@ -74,6 +77,34 @@ impl LanguageServer for Backend {
 
 #[tokio::main]
 async fn main() {
+    let mut args: Vec<String> = std::env::args().collect();
+    let mut file = match std::fs::File::create("../log.log") {
+        Ok(f) => f,
+        Err(_) => return,
+    };
+
+    let mut flag_switch = false;
+
+    for (i, mut arg) in args.iter_mut().enumerate() {
+        if arg == "--stdio" || flag_switch {
+            if flag_switch { flag_switch = false };
+            continue;
+        }
+
+        if arg.starts_with("-") {
+            flag_switch = true;
+            let flag =arg.clone().remove(1).to_ascii_uppercase();
+            if let Some(value) = args[i + 1] {
+            match flag {
+                'p' => file.write(format!("{}{}", value, "\n").as_bytes()),
+               _ => continue, 
+            };
+            }
+        
+        }
+    }
+
+
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
