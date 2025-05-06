@@ -1,4 +1,4 @@
-use java_backend::jsp_syntax_validation::JspSyntaxValidation;
+use java_backend::jsp_syntax_validation::validate_jsp_tags;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -13,7 +13,7 @@ pub struct Backend {
 impl Backend {
     async fn validate_text(&self, uri: Url, text:String) {
         if text.contains("<%") {
-            let diagnostics = JspSyntaxValidation::run(&uri, &text);
+            let diagnostics = validate_jsp_tags(&uri, &text);
             self.client.publish_diagnostics(uri, diagnostics, None).await;
         }
     }
