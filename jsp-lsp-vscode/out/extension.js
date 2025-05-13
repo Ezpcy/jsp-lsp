@@ -36,21 +36,41 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.activate = activate;
 exports.deactivate = deactivate;
 const path = __importStar(require("path"));
+const vscode_1 = require("vscode");
 const node_1 = require("vscode-languageclient/node");
 let client;
 function activate(ctx) {
     var _a;
-    const exe = (_a = process.env.JSP_LSP_BIN) !== null && _a !== void 0 ? _a : path.join(ctx.extensionPath, "..", "target", "debug", "jsp-lsp");
-    const serverOptions = {
-        command: exe,
-        args: ["--stdio"],
-        transport: node_1.TransportKind.stdio,
-    };
-    const clientOptions = {
-        documentSelector: [{ scheme: "file", language: "jsp" }],
-    };
-    client = new node_1.LanguageClient("jsp-lsp", "JSP Language Server", serverOptions, clientOptions);
-    client.start();
+    try {
+        const config = vscode_1.workspace.getConfiguration("jspLsp");
+        const jar = config.get("javaLauncherJar");
+        const cfg = config.get("javaConfigDir");
+        const ws = config.get("javaWorkspaceDir");
+        if (!jar || !cfg || !ws) {
+            vscode_1.window
+                .showErrorMessage("JSP LSP: Java LSP is not correctly configured.", "Open Settings")
+                .then((selection) => {
+                if (selection === "Open Settings") {
+                    vscode_1.commands.executeCommand("workbench.action.openSettings", "vscode://settings/jspLsp");
+                }
+            });
+            return;
+        }
+        const exe = (_a = process.env.JSP_LSP_BIN) !== null && _a !== void 0 ? _a : path.join(ctx.extensionPath, "..", "target", "debug", "jsp-lsp");
+        const serverOptions = {
+            command: exe,
+            args: ["--stdio", "-p", jar, "-c", cfg, "-w", ws],
+            transport: node_1.TransportKind.stdio,
+        };
+        const clientOptions = {
+            documentSelector: [{ scheme: "file", language: "jsp" }],
+        };
+        client = new node_1.LanguageClient("jsp-lsp", "JSP Language Server", serverOptions, clientOptions);
+        client.start();
+    }
+    catch (err) {
+        vscode_1.window.showErrorMessage(`JSP LSP: Activation error - ${err.message}`);
+    }
 }
 function deactivate() {
     if (!client) {

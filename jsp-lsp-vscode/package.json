@@ -13,6 +13,25 @@
     "onLanguage:jsp"
   ],
   "contributes": {
+    "configuration": [
+      {
+        "title": "JSP-LSP Settings",
+        "properties": {
+          "jspLsp.javaLauncherJar": {
+            "type": "string",
+            "description": "Path to org.eclipse.equinox.launcher_xxx.jar of JDT LS"
+          },
+          "jspLsp.javaConfigDir": {
+            "type": "string",
+            "description": "Path to JDT LS config directory (e.g. config_linux)"
+          },
+          "jspLsp.javaWorkspaceDir": {
+            "type": "string",
+            "description": "Path to the Java workspace directory"
+          }
+        }
+      }
+    ],
     "languages": [
       {
         "id": "jsp",
