@@ -1,10 +1,13 @@
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range, Url};
+use std::sync::{Arc, Mutex};
 
+use super::java_lsp_connections::JavaLspConnection;
 
 /// Validate a JSP file for unclosed `<%` tags and return a list of diagnostics.
-pub fn validate_jsp_tags(uri: &Url, text: &str) -> Vec<Diagnostic> {
+pub fn validate_jsp_tags(uri: &Url, text: &str, java_lsp: Arc<Mutex<JavaLspConnection>>) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
     let mut stack = Vec::new();
+    let mut java_syntax = Vec::new();
 
     for (line_idx, line) in text.lines().enumerate() {
         let mut col = 0;
@@ -18,7 +21,9 @@ pub fn validate_jsp_tags(uri: &Url, text: &str) -> Vec<Diagnostic> {
         col = 0;
         while let Some(end) = line[col..].find("%>") {
             let absoulte_start = col + end;
-            if stack.pop().is_none() {
+            match stack.pop() {
+            Some(s) => java_syntax.push(line[(s.1)..absoulte_start].to_string()),
+            None => {
                 diagnostics.push(Diagnostic {
                     range: Range {
                         start: Position { line: line_idx as u32, character: absoulte_start as u32 },
@@ -28,6 +33,7 @@ pub fn validate_jsp_tags(uri: &Url, text: &str) -> Vec<Diagnostic> {
                     message: "Unopened %> tag".to_string(),
                     ..Default::default()
                 });
+                }
             }
             col += end + 2;
         }

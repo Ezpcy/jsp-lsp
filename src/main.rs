@@ -1,6 +1,10 @@
 use std::char;
 use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
+use std::path::{PathBuf};
 
+use dirs::cache_dir;
+use java_backend::java_lsp_connections::JavaLspConnection;
 use java_backend::jsp_syntax_validation::validate_jsp_tags;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
@@ -8,25 +12,57 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 mod java_backend;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Backend {
+    path: String,
+    config_path: String,
     client: Client,
+    java_lsp: Option<Arc<Mutex<JavaLspConnection>>>,
 }
 
 impl Backend {
     async fn validate_text(&self, uri: Url, text: String) {
         if text.contains("<%") {
-            let diagnostics = validate_jsp_tags(&uri, &text);
+            if let Some(lsp) = &self.java_lsp {
+            let diagnostics = validate_jsp_tags(&uri, &text, lsp.clone());
             self.client
                 .publish_diagnostics(uri, diagnostics, None)
                 .await;
+            }
         }
     }
 }
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, init_params: InitializeParams) -> Result<InitializeResult> {
+        if let Some(root_uri) = init_params.root_uri {
+            let workspace_path = {
+                let root_path = root_uri.to_file_path().unwrap();
+
+                // Universal cache dir
+                let cache_dir = dirs::cache_dir().unwrap();
+                let base_dir = cache_dir.join("jsp-lsp/jdtls/workspaces");
+
+                let escaped = root_path
+                    .to_string_lossy()
+                    .replace("/", "_")
+                    .replace("\\", "_");
+                
+                let ws_path = base_dir.join(escaped);
+
+                std::fs::create_dir_all(&ws_path).ok().unwrap();
+                
+                ws_path
+            };
+            
+            let stdin = tokio::io::stdin();
+            let stdout = tokio::io::stdout();
+
+            let java_lsp = Some(Arc::new(Mutex::new(JavaLspConnection::new(&self.path, &self.config_path, workspace_path.to_str().unwrap()).await)));
+
+            self.to_owned().java_lsp = java_lsp;
+        }
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -103,7 +139,7 @@ pub enum ArgErrorType {
     Help,
 }
 
-pub fn argumentError(error_type: ArgErrorType) {
+pub fn argument_error(error_type: ArgErrorType) {
     match error_type {
         ArgErrorType::DuplicateFlag => {
             println!("Duplicate flag passed");
@@ -123,10 +159,10 @@ pub fn argumentError(error_type: ArgErrorType) {
 async fn main() {
     let mut seen: HashSet<char> = HashSet::new();
     let mut args: Vec<String> = std::env::args().collect();
-    let (mut path, mut config_path, mut workspace_path) = ("", "", "");
+    let (mut path, mut config_path) = ("", "");
     args.remove(0);
     if args.is_empty() {
-        argumentError(ArgErrorType::Help);
+        argument_error(ArgErrorType::Help);
         return;
     }
     let mut is_read = false;
@@ -145,7 +181,7 @@ async fn main() {
             match flag {
                 'p' => {
                     if seen.contains(&flag) {
-                        argumentError(ArgErrorType::DuplicateFlag);
+                        argument_error(ArgErrorType::DuplicateFlag);
                     } else {
                         seen.insert(flag);
                     }
@@ -153,13 +189,13 @@ async fn main() {
                         is_read = true;
                         path = value;
                     } else {
-                        argumentError(ArgErrorType::NoPathProvided);
+                        argument_error(ArgErrorType::NoPathProvided);
                         return;
                     }
                 }
                 'c' => {
                     if seen.contains(&flag) {
-                        argumentError(ArgErrorType::DuplicateFlag);
+                        argument_error(ArgErrorType::DuplicateFlag);
                     } else {
                         seen.insert(flag);
                     }
@@ -167,35 +203,21 @@ async fn main() {
                         is_read = true;
                         config_path = value;
                     } else {
-                        argumentError(ArgErrorType::NoPathProvided);
-                        return;
-                    }
-                }
-                'w' => {
-                    if seen.contains(&flag) {
-                        argumentError(ArgErrorType::DuplicateFlag);
-                    } else {
-                        seen.insert(flag);
-                    }
-                    if let Some(value) = args.get(i + 1) {
-                        is_read = true;
-                        workspace_path = value;
-                    } else {
-                        argumentError(ArgErrorType::NoPathProvided);
+                        argument_error(ArgErrorType::NoPathProvided);
                         return;
                     }
                 }
                 'h' => {
-                    argumentError(ArgErrorType::Help);
+                    argument_error(ArgErrorType::Help);
                     return;
                 }
                 _ => {
-                    argumentError(ArgErrorType::UnknownArgument);
+                    argument_error(ArgErrorType::UnknownArgument);
                     return;
                 }
             };
         } else {
-            argumentError(ArgErrorType::UnknownArgument);
+            argument_error(ArgErrorType::UnknownArgument);
             return;
         }
     }
@@ -203,6 +225,11 @@ async fn main() {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(|client| Backend { client });
+    let (service, socket) = LspService::new(|client| Backend { 
+        path : path.into(),
+        config_path: config_path.into(),
+        client,
+        java_lsp: None,
+    });
     Server::new(stdin, stdout, socket).serve(service).await;
 }

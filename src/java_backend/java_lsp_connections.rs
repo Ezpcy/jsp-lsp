@@ -1,24 +1,25 @@
 use serde_json::json;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{ChildStdin, ChildStdout, Command},
 };
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+#[derive(Debug)]
 pub struct JavaLspConnection {
     stdin: tokio::sync::Mutex<ChildStdin>,
     stdout: tokio::sync::Mutex<BufReader<ChildStdout>>,
 }
 
 impl JavaLspConnection {
-    pub async fn new(path: &str, config_path: &str, workspace_path: &str) -> Self {
+    pub async fn new(path: &String, config_path: &String, workspace_path: &str) -> Self {
         let mut child = Command::new("java")
             .args([
                 "--jar",
-                path,
+                path.as_str(),
                 "--configuration",
-                config_path,
+                config_path.as_str(),
                 "--data",
                 workspace_path,
             ])
@@ -77,7 +78,7 @@ impl JavaLspConnection {
 
         let len = content_length.ok_or("No Content-Length header found")?;
         let mut buffer = vec![0; len];
-        stdout.(&mut buffer).await?;
+        stdout.read_exact(&mut buffer).await?;
         let json = String::from_utf8(buffer)?;
         Ok(json)
     }
