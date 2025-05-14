@@ -1,1 +1,4 @@
 /target
+logs
+Cargo.lock
+package-lock.json

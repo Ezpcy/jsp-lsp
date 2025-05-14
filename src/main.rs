@@ -1,16 +1,17 @@
 use std::char;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
-use std::path::{PathBuf};
 
-use dirs::cache_dir;
 use java_backend::java_lsp_connections::JavaLspConnection;
 use java_backend::jsp_syntax_validation::validate_jsp_tags;
+use log::info;
+use logger::setup_logging;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 mod java_backend;
+mod logger;
 
 #[derive(Debug, Clone)]
 pub struct Backend {
@@ -56,10 +57,7 @@ impl LanguageServer for Backend {
                 ws_path
             };
             
-            let stdin = tokio::io::stdin();
-            let stdout = tokio::io::stdout();
-
-            let java_lsp = Some(Arc::new(Mutex::new(JavaLspConnection::new(&self.path, &self.config_path, workspace_path.to_str().unwrap()).await)));
+            let java_lsp = Some(Arc::new(Mutex::new(JavaLspConnection::new(self.path.to_owned(), self.config_path.to_owned(), workspace_path.to_str().unwrap()).await)));
 
             self.to_owned().java_lsp = java_lsp;
         }
@@ -123,13 +121,12 @@ impl LanguageServer for Backend {
 }
 
 const HELP: &str = r#"
-Jsp-lsp ritten in Rust
-Usage: jsp-lsp --stdio -p <PathToJdtLangServer> -c <PathToConfigDirectory> -w <PathToWorkspaceDirectory>
+Jsp-lsp written in Rust
+Usage: jsp-lsp --stdio -p <PathToJdtLangServer> -c <PathToConfigDirectory>
 
 Arguments:
     -p  Path to the jdt language server jar file
     -c  Path to the JDT LS config directory (e.g. config_linux)
-    -w  Path to the Java workspace directory
 "#;
 
 pub enum ArgErrorType {
@@ -222,6 +219,8 @@ async fn main() {
         }
     }
 
+    setup_logging().unwrap();
+
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
@@ -231,5 +230,6 @@ async fn main() {
         client,
         java_lsp: None,
     });
+    info!("LSP Started");
     Server::new(stdin, stdout, socket).serve(service).await;
 }

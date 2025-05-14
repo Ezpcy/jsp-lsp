@@ -1,8 +1,8 @@
-use serde_json::json;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{ChildStdin, ChildStdout, Command},
 };
+use log::{error};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -13,7 +13,7 @@ pub struct JavaLspConnection {
 }
 
 impl JavaLspConnection {
-    pub async fn new(path: &String, config_path: &String, workspace_path: &str) -> Self {
+    pub async fn new(path: String, config_path: String, workspace_path: &str) -> Self {
         let mut child = Command::new("java")
             .args([
                 "--jar",
@@ -26,20 +26,22 @@ impl JavaLspConnection {
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .spawn()
-            .expect("Failed to spawn Java LSP");
+            .map_err(|_| error!("Failed to spawn Java LSP")).unwrap();
 
         JavaLspConnection {
             stdin: tokio::sync::Mutex::new(
                 child
                     .stdin
                     .take()
-                    .expect("Error accessing Java LSP process"),
+                    .ok_or_else(|| error!("Error accessing Java LSP process"))
+                    .unwrap()
             ),
             stdout: tokio::sync::Mutex::new(BufReader::new(
                 child
                     .stdout
                     .take()
-                    .expect("Error accessing Java LSP process"),
+                    .ok_or_else(|| error!("Error accessing Java LSP process"))
+                    .unwrap()
             )),
         }
     }

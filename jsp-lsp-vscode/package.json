@@ -24,10 +24,6 @@
           "jspLsp.javaConfigDir": {
             "type": "string",
             "description": "Path to JDT LS config directory (e.g. config_linux)"
-          },
-          "jspLsp.javaWorkspaceDir": {
-            "type": "string",
-            "description": "Path to the Java workspace directory"
           }
         }
       }

@@ -1,7 +1,7 @@
-use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range, Url};
-use std::sync::{Arc, Mutex};
-
+use log::error;
+use std::{io::Write, sync::{Arc, Mutex}};
 use super::java_lsp_connections::JavaLspConnection;
+use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range, Url};
 
 /// Validate a JSP file for unclosed `<%` tags and return a list of diagnostics.
 pub fn validate_jsp_tags(uri: &Url, text: &str, java_lsp: Arc<Mutex<JavaLspConnection>>) -> Vec<Diagnostic> {
@@ -37,6 +37,12 @@ pub fn validate_jsp_tags(uri: &Url, text: &str, java_lsp: Arc<Mutex<JavaLspConne
             }
             col += end + 2;
         }
+
+        let mut file = std::fs::File::create("java_syntax.txt").map_err(|_| error!("Failed to open file java_syntax.txt")).unwrap();
+
+        for line in java_syntax.iter() {
+            file.write_all(line.as_bytes()).unwrap();
+        }
     }
 
     for (line, col) in stack {
@@ -50,9 +56,7 @@ pub fn validate_jsp_tags(uri: &Url, text: &str, java_lsp: Arc<Mutex<JavaLspConne
             ..Default::default()
         });
     }
-
 diagnostics
-
 }
 
 

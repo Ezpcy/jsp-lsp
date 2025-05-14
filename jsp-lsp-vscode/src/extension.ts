@@ -14,9 +14,8 @@ export function activate(ctx: ExtensionContext) {
     const config = workspace.getConfiguration("jspLsp");
     const jar = config.get<string>("javaLauncherJar");
     const cfg = config.get<string>("javaConfigDir");
-    const ws = config.get<string>("javaWorkspaceDir");
 
-    if (!jar || !cfg || !ws) {
+    if (!jar || !cfg) {
       window
         .showErrorMessage(
           "JSP LSP: Java LSP is not correctly configured.",
@@ -39,7 +38,7 @@ export function activate(ctx: ExtensionContext) {
 
     const serverOptions: ServerOptions = {
       command: exe,
-      args: ["--stdio", "-p", jar!, "-c", cfg!, "-w", ws!],
+      args: ["--stdio", "-p", jar!, "-c", cfg!],
       transport: TransportKind.stdio,
     };
 

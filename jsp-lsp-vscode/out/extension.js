@@ -45,8 +45,7 @@ function activate(ctx) {
         const config = vscode_1.workspace.getConfiguration("jspLsp");
         const jar = config.get("javaLauncherJar");
         const cfg = config.get("javaConfigDir");
-        const ws = config.get("javaWorkspaceDir");
-        if (!jar || !cfg || !ws) {
+        if (!jar || !cfg) {
             vscode_1.window
                 .showErrorMessage("JSP LSP: Java LSP is not correctly configured.", "Open Settings")
                 .then((selection) => {
@@ -59,7 +58,7 @@ function activate(ctx) {
         const exe = (_a = process.env.JSP_LSP_BIN) !== null && _a !== void 0 ? _a : path.join(ctx.extensionPath, "..", "target", "debug", "jsp-lsp");
         const serverOptions = {
             command: exe,
-            args: ["--stdio", "-p", jar, "-c", cfg, "-w", ws],
+            args: ["--stdio", "-p", jar, "-c", cfg],
             transport: node_1.TransportKind.stdio,
         };
         const clientOptions = {
