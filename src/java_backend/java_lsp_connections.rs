@@ -3,6 +3,7 @@ use tokio::{
     process::{ChildStdin, ChildStdout, Command},
 };
 use log::{error};
+use std::io::Result as IoResult;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -81,7 +82,7 @@ impl JavaLspConnection {
         let len = content_length.ok_or("No Content-Length header found")?;
         let mut buffer = vec![0; len];
         stdout.read_exact(&mut buffer).await?;
-        let json = String::from_utf8(buffer)?;
-        Ok(json)
+        let message = String::from_utf8(buffer).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        Ok(message)
     }
 }

@@ -1,38 +1,21 @@
-use std::char;
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+mod java_backend;
 
 use java_backend::java_lsp_connections::JavaLspConnection;
-use java_backend::jsp_syntax_validation::validate_jsp_tags;
-use log::info;
-use logger::setup_logging;
+use std::{char, panic};
+use std::collections::HashSet;
+use std::sync::{Arc, LockResult, Mutex, MutexGuard};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
-
-mod java_backend;
-mod logger;
 
 #[derive(Debug, Clone)]
 pub struct Backend {
     path: String,
     config_path: String,
     client: Client,
-    java_lsp: Option<Arc<Mutex<JavaLspConnection>>>,
+    java_lsp: Arc<Mutex<Option<JavaLspConnection>>>,
 }
 
-impl Backend {
-    async fn validate_text(&self, uri: Url, text: String) {
-        if text.contains("<%") {
-            if let Some(lsp) = &self.java_lsp {
-            let diagnostics = validate_jsp_tags(&uri, &text, lsp.clone());
-            self.client
-                .publish_diagnostics(uri, diagnostics, None)
-                .await;
-            }
-        }
-    }
-}
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
@@ -57,9 +40,9 @@ impl LanguageServer for Backend {
                 ws_path
             };
             
-            let java_lsp = Some(Arc::new(Mutex::new(JavaLspConnection::new(self.path.to_owned(), self.config_path.to_owned(), workspace_path.to_str().unwrap()).await)));
+            let lsp =  JavaLspConnection::new(self.path.to_owned(), self.config_path.to_owned(), workspace_path.to_str().unwrap()).await;
 
-            self.to_owned().java_lsp = java_lsp;
+            self.java_lsp.lock().unwrap().replace(lsp);
         }
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
@@ -219,8 +202,6 @@ async fn main() {
         }
     }
 
-    setup_logging().unwrap();
-
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
@@ -228,8 +209,7 @@ async fn main() {
         path : path.into(),
         config_path: config_path.into(),
         client,
-        java_lsp: None,
+        java_lsp: Arc::new(Mutex::new(None)),
     });
-    info!("LSP Started");
     Server::new(stdin, stdout, socket).serve(service).await;
 }

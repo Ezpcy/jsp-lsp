@@ -1,64 +1,74 @@
 use log::error;
 use std::{io::Write, sync::{Arc, Mutex}};
+use crate::Backend;
+
 use super::java_lsp_connections::JavaLspConnection;
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range, Url};
 
+impl Backend { 
 /// Validate a JSP file for unclosed `<%` tags and return a list of diagnostics.
-pub fn validate_jsp_tags(uri: &Url, text: &str, java_lsp: Arc<Mutex<JavaLspConnection>>) -> Vec<Diagnostic> {
-    let mut diagnostics = Vec::new();
-    let mut stack = Vec::new();
-    let mut java_syntax = Vec::new();
+    pub async fn validate_text(&self, uri: Url, text: String) {
+        if text.contains("<%") {
+            let mut diagnostics = Vec::new();
+            let mut stack = Vec::new();
+            let mut java_syntax = Vec::new();
 
-    for (line_idx, line) in text.lines().enumerate() {
-        let mut col = 0;
+            for (line_idx, line) in text.lines().enumerate() {
+                let mut col = 0;
 
-        while let Some(start) = line[col..].find("<%") {
-            let absolute_start = col + start;
-            stack.push((line_idx, absolute_start));
-            col = absolute_start + 2;
-        }
+                while let Some(start) = line[col..].find("<%") {
+                    let absolute_start = col + start;
+                    stack.push((line_idx, absolute_start));
+                    col = absolute_start + 2;
+                }
 
-        col = 0;
-        while let Some(end) = line[col..].find("%>") {
-            let absoulte_start = col + end;
-            match stack.pop() {
-            Some(s) => java_syntax.push(line[(s.1)..absoulte_start].to_string()),
-            None => {
-                diagnostics.push(Diagnostic {
-                    range: Range {
-                        start: Position { line: line_idx as u32, character: absoulte_start as u32 },
-                        end: Position { line: line_idx as u32, character: (absoulte_start +2) as u32 },
-                    },
-                    severity: Some(DiagnosticSeverity::WARNING),
-                    message: "Unopened %> tag".to_string(),
-                    ..Default::default()
-                });
+                col = 0;
+                while let Some(end) = line[col..].find("%>") {
+                    let absolute_start = col + end;
+                    match stack.pop() {
+                    Some(s) => java_syntax.push(line[(s.1)..absolute_start].to_string()),
+                    None => {
+                        diagnostics.push(Diagnostic {
+                            range: Range {
+                                start: Position { line: line_idx as u32, character: absolute_start as u32 },
+                                end: Position { line: line_idx as u32, character: (absolute_start +2) as u32 },
+                            },
+                            severity: Some(DiagnosticSeverity::WARNING),
+                            message: "Unopened %> tag".to_string(),
+                            ..Default::default()
+                        });
+                        }
+                    }
+                    col += end + 2;
                 }
             }
-            col += end + 2;
-        }
 
-        let mut file = std::fs::File::create("java_syntax.txt").map_err(|_| error!("Failed to open file java_syntax.txt")).unwrap();
+            for (line, col) in stack {
+                diagnostics.push(Diagnostic {
+                    range: Range {
+                        start: Position::new(line as u32, col as u32),
+                        end: Position::new(line as u32, (col + 2) as u32),
+                    },
+                    severity: Some(DiagnosticSeverity::WARNING),
+                    message: "Unclosed <% tag".to_string(),
+                    ..Default::default()
+                });
+            }
+        
+        let mut lsp = {
+            match self.java_lsp.lock() {
+                Ok(res) => {
+                        if let Some(lsp) = res {
+                            lsp
+                        }
+                    },
+                Err(_) => todo!(),
+            };
+        };
 
-        for line in java_syntax.iter() {
-            file.write_all(line.as_bytes()).unwrap();
+        self.client
+            .publish_diagnostics(uri, diagnostics, None)
+            .await;
         }
     }
-
-    for (line, col) in stack {
-        diagnostics.push(Diagnostic {
-            range: Range {
-                start: Position::new(line as u32, col as u32),
-                end: Position::new(line as u32, (col + 2) as u32),
-            },
-            severity: Some(DiagnosticSeverity::WARNING),
-            message: "Unclosed <% tag".to_string(),
-            ..Default::default()
-        });
-    }
-diagnostics
 }
-
-
-
-
