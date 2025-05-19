@@ -3,7 +3,7 @@ use std::{io::Write, sync::{Arc, Mutex}};
 use crate::Backend;
 
 use super::java_lsp_connections::JavaLspConnection;
-use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Position, Range, Url};
+use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, MessageType, Position, Range, Url};
 
 impl Backend { 
 /// Validate a JSP file for unclosed `<%` tags and return a list of diagnostics.
@@ -26,7 +26,7 @@ impl Backend {
                 while let Some(end) = line[col..].find("%>") {
                     let absolute_start = col + end;
                     match stack.pop() {
-                    Some(s) => java_syntax.push(line[(s.1)..absolute_start].to_string()),
+                    Some(s) => java_syntax.push(text[text.find("<%").unwrap() + 2..text.find("%>").unwrap()].to_string()),
                     None => {
                         diagnostics.push(Diagnostic {
                             range: Range {
@@ -41,6 +41,7 @@ impl Backend {
                     }
                     col += end + 2;
                 }
+
             }
 
             for (line, col) in stack {
@@ -55,16 +56,27 @@ impl Backend {
                 });
             }
         
-        let mut lsp = {
+
+        self.client.log_message(MessageType::INFO, java_syntax.join(" ")).await;
+
+        let lsp: JavaLspConnection = {
             match self.java_lsp.lock() {
-                Ok(res) => {
-                        if let Some(lsp) = res {
-                            lsp
+                Ok(mut lsp) => {
+                        match lsp.take() {
+                            Some(lsp) => lsp,
+                            None => {
+                                error!("Java LSP connection is not available");
+                                return;
+                            }
                         }
                     },
-                Err(_) => todo!(),
-            };
+                Err(e) => {
+                    error!("Failed to lock Java LSP connection: {}", e);
+                    return;
+                }
+            }
         };
+
 
         self.client
             .publish_diagnostics(uri, diagnostics, None)

@@ -52,6 +52,7 @@ export function activate(ctx: ExtensionContext) {
       serverOptions,
       clientOptions
     );
+
     client.start();
   } catch (err) {
     window.showErrorMessage(
