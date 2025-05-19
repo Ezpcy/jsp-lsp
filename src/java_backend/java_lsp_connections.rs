@@ -1,11 +1,10 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
+use log::error;
+use std::io::Result as IoResult;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{ChildStdin, ChildStdout, Command},
 };
-use log::{error};
-use std::io::Result as IoResult;
-
 
 #[derive(Debug)]
 pub struct JavaLspConnection {
@@ -18,6 +17,19 @@ impl JavaLspConnection {
         let mut child = Command::new("java")
             .args([
                 "--Declipse.application=org.eclipse.jdt.ls.core.id1",
+                "-Dosgi.bundles.defaultStartLevel=4",
+                "-Dosgi.bundles.defaultStartLevel=4 -Declipse.product=org.eclipse.jdt.ls.core.product",
+                "-Dosgi.checkConfiguration=true",
+                // TODO 
+                // /home/ezpz/.local/share/nvim/mason/share/jdtls/config for the one below to parse
+                format!("-Dosgi.sharedConfiguration.area={}", config_path.as_str()).as_str(),
+                "-Dosgi.sharedConfiguration.area.readOnly=true",
+                "-Dosgi.configuration.cascaded=true",
+                "-Xms1G",
+                "--add-modules=ALL-SYSTEM",
+                "--add-opens",
+                "java.base/java.util=ALL-UNNAMED",
+                "-javaagent:lombok.jar",
                 "-jar",
                 path.as_str(),
                 "-configuration",
@@ -30,20 +42,12 @@ impl JavaLspConnection {
             .spawn()?;
 
         Ok(JavaLspConnection {
-            stdin: tokio::sync::Mutex::new(
-                child
-                    .stdin
-                    .take()
-                    .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "Failed to open stdin"))?,
-            ),
-            stdout: tokio::sync::Mutex::new(BufReader::new(
-                child
-                    .stdout
-                    .take()
-                    .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "Failed to open stdout"))?,
-
-                    
-            )),
+            stdin: tokio::sync::Mutex::new(child.stdin.take().ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::Other, "Failed to open stdin")
+            })?),
+            stdout: tokio::sync::Mutex::new(BufReader::new(child.stdout.take().ok_or_else(
+                || std::io::Error::new(std::io::ErrorKind::Other, "Failed to open stdout"),
+            )?)),
         })
     }
 
@@ -82,7 +86,8 @@ impl JavaLspConnection {
         let len = content_length.ok_or(anyhow!("No Content-Length header found"))?;
         let mut buffer = vec![0; len];
         stdout.read_exact(&mut buffer).await?;
-        let message = String::from_utf8(buffer).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        let message = String::from_utf8(buffer)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         Ok(message)
     }
 }

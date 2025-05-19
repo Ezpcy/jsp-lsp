@@ -2,4 +2,4 @@
 
 cargo build --release
 
-mv ./target/release/jsp-lsp ~/Public/
+cp ./lombok.jar ./target/release/
