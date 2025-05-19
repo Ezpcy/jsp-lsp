@@ -5,7 +5,7 @@ use tokio::{
 use log::{error};
 use std::io::Result as IoResult;
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync + 'static>>;
 
 #[derive(Debug)]
 pub struct JavaLspConnection {
@@ -14,37 +14,36 @@ pub struct JavaLspConnection {
 }
 
 impl JavaLspConnection {
-    pub async fn new(path: String, config_path: String, workspace_path: &str) -> Self {
+    pub async fn new(path: String, config_path: String, workspace_path: &str) -> Result<Self> {
         let mut child = Command::new("java")
             .args([
-                "--jar",
+                "-jar",
                 path.as_str(),
-                "--configuration",
+                "-configuration",
                 config_path.as_str(),
-                "--data",
+                "-data",
                 workspace_path,
             ])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|_| error!("Failed to spawn Java LSP")).unwrap();
+            .spawn()?;
 
-        JavaLspConnection {
+        Ok(JavaLspConnection {
             stdin: tokio::sync::Mutex::new(
                 child
                     .stdin
                     .take()
-                    .ok_or_else(|| error!("Error accessing Java LSP process"))
-                    .unwrap()
+                    .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "Failed to open stdin"))?,
             ),
             stdout: tokio::sync::Mutex::new(BufReader::new(
                 child
                     .stdout
                     .take()
-                    .ok_or_else(|| error!("Error accessing Java LSP process"))
-                    .unwrap()
+                    .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "Failed to open stdout"))?,
+
+                    
             )),
-        }
+        })
     }
 
     pub async fn send_message(&self, msg: &str) -> Result<()> {

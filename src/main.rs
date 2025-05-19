@@ -20,30 +20,39 @@ pub struct Backend {
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, init_params: InitializeParams) -> Result<InitializeResult> {
-        if let Some(root_uri) = init_params.root_uri {
-            let workspace_path = {
-                let root_path = root_uri.to_file_path().unwrap();
-
-                // Universal cache dir
-                let cache_dir = dirs::cache_dir().unwrap();
-                let base_dir = cache_dir.join("jsp-lsp/jdtls/workspaces");
-
-                let escaped = root_path
-                    .to_string_lossy()
-                    .replace("/", "_")
-                    .replace("\\", "_");
-                
-                let ws_path = base_dir.join(escaped);
-
-                std::fs::create_dir_all(&ws_path).ok().unwrap();
-                
-                ws_path
+        let workspace_path = {
+            let root_path = {
+                if let Some(res) = init_params.root_uri {
+                    res.to_file_path().unwrap()
+                } else {
+                    std::env::temp_dir().join("jsp-lsp-fallback-workspace")
+                }
             };
-            
-            let lsp =  JavaLspConnection::new(self.path.to_owned(), self.config_path.to_owned(), workspace_path.to_str().unwrap()).await;
 
-            self.java_lsp.lock().unwrap().replace(lsp);
+            // Universal cache dir
+            let cache_dir = dirs::cache_dir().unwrap();
+            let base_dir = cache_dir.join("jsp-lsp/jdtls/workspaces");
+
+            let escaped = root_path
+                .to_string_lossy()
+                .replace("/", "_")
+                .replace("\\", "_");
+            
+            let ws_path = base_dir.join(escaped);
+
+            std::fs::create_dir_all(&ws_path).ok().unwrap();
+            
+            ws_path
+        };
+        
+        let lsp =  JavaLspConnection::new(self.path.to_owned(), self.config_path.to_owned(), workspace_path.to_str().unwrap()).await;
+        match lsp {
+            Ok(res) => {
+                self.java_lsp.lock().unwrap().replace(res);
+            },
+            Err(e) => self.client.log_message(MessageType::ERROR, e.to_string()).await,
         }
+
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(

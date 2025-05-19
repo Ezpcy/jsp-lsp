@@ -63,6 +63,7 @@ function activate(ctx) {
         };
         const clientOptions = {
             documentSelector: [{ scheme: "file", language: "jsp" }],
+            traceOutputChannel: vscode_1.window.createOutputChannel("JSP LSP Trace"),
         };
         client = new node_1.LanguageClient("jsp-lsp", "JSP Language Server", serverOptions, clientOptions);
         client.start();
