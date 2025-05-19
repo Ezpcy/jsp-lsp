@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Result};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{ChildStdin, ChildStdout, Command},
@@ -5,7 +6,6 @@ use tokio::{
 use log::{error};
 use std::io::Result as IoResult;
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync + 'static>>;
 
 #[derive(Debug)]
 pub struct JavaLspConnection {
@@ -17,6 +17,7 @@ impl JavaLspConnection {
     pub async fn new(path: String, config_path: String, workspace_path: &str) -> Result<Self> {
         let mut child = Command::new("java")
             .args([
+                "--Declipse.application=org.eclipse.jdt.ls.core.id1",
                 "-jar",
                 path.as_str(),
                 "-configuration",
@@ -64,7 +65,7 @@ impl JavaLspConnection {
             let mut line = String::new();
             let bytes_read = stdout.read_line(&mut line).await?;
             if bytes_read == 0 {
-                return Err("Unexpected EOF while reading headers".into());
+                return Err(anyhow!("Unexpected EOF while reading headers"));
             }
             let line = line.trim_end();
             if line.is_empty() {
@@ -78,7 +79,7 @@ impl JavaLspConnection {
             }
         }
 
-        let len = content_length.ok_or("No Content-Length header found")?;
+        let len = content_length.ok_or(anyhow!("No Content-Length header found"))?;
         let mut buffer = vec![0; len];
         stdout.read_exact(&mut buffer).await?;
         let message = String::from_utf8(buffer).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;

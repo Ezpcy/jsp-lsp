@@ -4,3 +4,4 @@ Cargo.lock
 package-lock.json
 .vscode
 */node_modules
+launch

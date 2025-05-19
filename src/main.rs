@@ -1,9 +1,9 @@
 mod java_backend;
 
 use java_backend::java_lsp_connections::JavaLspConnection;
-use std::{char, panic};
 use std::collections::HashSet;
-use std::sync::{Arc, LockResult, Mutex, MutexGuard};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
@@ -48,7 +48,7 @@ impl LanguageServer for Backend {
         let lsp =  JavaLspConnection::new(self.path.to_owned(), self.config_path.to_owned(), workspace_path.to_str().unwrap()).await;
         match lsp {
             Ok(res) => {
-                self.java_lsp.lock().unwrap().replace(res);
+                self.java_lsp.lock().await.replace(res);
             },
             Err(e) => self.client.log_message(MessageType::ERROR, e.to_string()).await,
         }

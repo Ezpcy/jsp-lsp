@@ -1,5 +1,6 @@
+use anyhow::Result;
 use log::error;
-use std::{io::Write, sync::{Arc, Mutex}};
+use std::{error::Error, io::Write, sync::{Arc, Mutex}};
 use crate::Backend;
 
 use super::java_lsp_connections::JavaLspConnection;
@@ -26,7 +27,11 @@ impl Backend {
                 while let Some(end) = line[col..].find("%>") {
                     let absolute_start = col + end;
                     match stack.pop() {
-                    Some(s) => java_syntax.push(text[text.find("<%").unwrap() + 2..text.find("%>").unwrap()].to_string()),
+                    Some(_) => {
+                            if let (Some(start_pos), Some(end_pos)) = (text.find("<%"), text.find("%>")) {
+                                java_syntax.push(text[start_pos + 2..end_pos].to_string())
+                            }
+                        },
                     None => {
                         diagnostics.push(Diagnostic {
                             range: Range {
@@ -59,23 +64,9 @@ impl Backend {
 
         self.client.log_message(MessageType::INFO, java_syntax.join(" ")).await;
 
-        let lsp: JavaLspConnection = {
-            match self.java_lsp.lock() {
-                Ok(mut lsp) => {
-                        match lsp.take() {
-                            Some(lsp) => lsp,
-                            None => {
-                                error!("Java LSP connection is not available");
-                                return;
-                            }
-                        }
-                    },
-                Err(e) => {
-                    error!("Failed to lock Java LSP connection: {}", e);
-                    return;
-                }
-            }
-        };
+        if let lsp = self.java_lsp.lock().await.is_none() {
+            self.client.log_message(MessageType::ERROR, "Java LSP not initiated.").await
+        }
 
 
         self.client
