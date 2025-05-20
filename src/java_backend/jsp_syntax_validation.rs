@@ -2,6 +2,7 @@ use crate::Backend;
 use std::panic;
 
 use super::java_lsp_connections::{JavaLspConnection, JavaLspMethod};
+use serde_json::json;
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, MessageType, Position, Range, Url};
 
 struct JavaBlock {
@@ -16,92 +17,88 @@ impl Backend {
     /// Validate a JSP file for unclosed `<%` tags and return a list of diagnostics.
     pub async fn validate_text(&self, uri: Url, text: String, method: JavaLspMethod) {
         if text.contains("<%") {
-            let mut diagnostics = Vec::new();
-            let mut stack = Vec::new();
-            let mut java_syntax = Vec::new();
+            let mut java_blocks = Vec::new();
+            let mut java_file_lines = Vec::new();
+            let mut current_java_line = 0;
 
             for (line_idx, line) in text.lines().enumerate() {
-                let mut col = 0;
+                let mut search_start = 0;
+                while let Some(start) = line[search_start..].find("<%") {
+                    let abs_start = search_start + start;
+                    if let Some(end) = line[abs_start..].find("%>") {
+                        let abs_end = abs_start + end + 2;
+                        let java_code = &line[abs_start + 2..abs_end - 2];
+                        let code_lines: Vec<&str> = java_code.lines().collect();
 
-                while let Some(start) = line[col..].find("<%") {
-                    let absolute_start = col + start;
-                    stack.push((line_idx, absolute_start));
-                    col = absolute_start + 2;
-                }
+                        java_blocks.push(JavaBlock {
+                            java_code: java_code.to_string(),
+                            jsp_start_line: line_idx,
+                            jsp_start_col: abs_start,
+                            java_start_line: current_java_line,
+                            java_line_count: code_lines.len().max(1),
+                        });
+                        for code_line in code_lines {
+                            java_file_lines.push(code_line.to_string());
+                        }
+                        current_java_line += code_lines.len().max(1);
 
-                col = 0;
-                while let Some(end) = line[col..].find("%>") {
-                    let absolute_start = col + end;
-                    match stack.pop() {
-                        Some(_) => {
-                            if let (Some(start_pos), Some(end_pos)) =
-                                (text.find("<%"), text.find("%>"))
-                            {
-                                java_syntax.push(text[start_pos + 2..end_pos].to_string())
-                            }
-                        }
-                        None => {
-                            diagnostics.push(Diagnostic {
-                                range: Range {
-                                    start: Position {
-                                        line: line_idx as u32,
-                                        character: absolute_start as u32,
+                        search_start = abs_end;
+                    } else {
+                        // Unclosed
+                        self.client
+                            .publish_diagnostics(
+                                uri.clone(),
+                                vec![Diagnostic {
+                                    range: Range {
+                                        start: Position::new(line_idx as u32, abs_start as u32),
+                                        end: Position::new(line_idx as u32, (abs_start + 2) as u32),
                                     },
-                                    end: Position {
-                                        line: line_idx as u32,
-                                        character: (absolute_start + 2) as u32,
-                                    },
-                                },
-                                severity: Some(DiagnosticSeverity::WARNING),
-                                message: "Unopened %> tag".to_string(),
-                                ..Default::default()
-                            });
-                        }
+                                    severity: Some(DiagnosticSeverity::WARNING),
+                                    message: "Unclosed <% tag".to_string(),
+                                    ..Default::default()
+                                }],
+                                None,
+                            )
+                            .await;
+                        break;
                     }
-                    col += end + 2;
                 }
             }
-
-            for (line, col) in stack {
-                diagnostics.push(Diagnostic {
-                    range: Range {
-                        start: Position::new(line as u32, col as u32),
-                        end: Position::new(line as u32, (col + 2) as u32),
-                    },
-                    severity: Some(DiagnosticSeverity::WARNING),
-                    message: "Unclosed <% tag".to_string(),
-                    ..Default::default()
-                });
-            }
-
-            let java_syntax_str = java_syntax.join("");
-
-            self.client
-                .log_message(MessageType::INFO, java_syntax.join(""))
-                .await;
+            let virtual_java_code = java_file_lines.join("\n");
+            let virtual_java_uri = Url::parse("file:///__virtual_jsp_temp.java").unwrap();
 
             let guard = self.java_lsp.lock().await;
-            if guard.is_none() {
-                self.client
-                    .log_message(MessageType::ERROR, "Java LSP not initiated.")
-                    .await;
-                return;
-            }
-
             let java_lsp = match guard.as_ref() {
                 Some(a) => a,
                 None => {
-                    self.client.log_message(MessageType::ERROR, "No Lsp").await;
-                    panic!()
+                    self.client
+                        .log_message(MessageType::ERROR, "Java LSP not initiated.")
+                        .await;
+                    return;
                 }
             };
 
-            java_lsp
-                .send_message(&java_syntax_str, &uri, method)
-                .await
-                .unwrap();
+            let did_open = json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": {
+                    "textDocument": {
+                        "uri": virtual_java_uri,
+                        "languageId": "java",
+                        "version": 1,
+                        "text": virtual_java_code,
+                    }
+                }
+            });
+            java_lsp.send_message(&did_open.to_string()).await.unwrap();
 
             let rec_msg = java_lsp.read_message().await.unwrap();
+            let v: serde_json::Value = serde_json::from_str(&rec_msg).unwrap();
+
+            let diagnostic = Vec::new();
+
+
+            if let Some(param) = 
 
             self.client.log_message(MessageType::INFO, rec_msg).await;
 

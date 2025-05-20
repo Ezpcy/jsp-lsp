@@ -178,21 +178,8 @@ impl JavaLspConnection {
         })
     }
 
-    pub async fn send_message(&self, msg: &str, uri: &Url, method: JavaLspMethod) -> Result<()> {
+    pub async fn send_message(&self, msg: &str) -> Result<()> {
         let mut stdin = self.stdin.lock().await;
-        let json = json!({
-            "jsonrpc": "2.0",
-            "method": method.value(),
-            "params": {
-            "textDocument": {
-                "uri": uri,
-                "languageId": "java",
-                "version": 1,
-                "text": msg,
-            }
-        }
-        });
-        let msg = serde_json::to_string(&json)?;
         let header = format!("Content-Length: {}\r\n\r\n", msg.len());
         stdin.write_all(header.as_bytes()).await?;
         stdin.write_all(msg.as_bytes()).await?;
