@@ -1,15 +1,36 @@
 use anyhow::{anyhow, Result};
 use log::error;
-use std::io::Result as IoResult;
+use serde_json::json;
+use std::io::{stdin, stdout, Result as IoResult};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{ChildStdin, ChildStdout, Command},
 };
+use tower_lsp::{
+    lsp_types::{MessageType, Url},
+    Client,
+};
 
-pub fn check_esentials() -> Result<(&'static str, &'static str, &'static str)> {
-    let jar_file =
-        "./jdt-language-server/plugins/org.eclipse.equinox.launcher_1.6.400.v20210924-0641.jar";
-    match std::fs::exists(jar_file) {
+pub enum JavaLspMethod {
+    DidOpen,
+    DidChange,
+}
+
+impl JavaLspMethod {
+    fn value(&self) -> &str {
+        match *self {
+            JavaLspMethod::DidOpen => "textDocument/didOpen",
+            JavaLspMethod::DidChange => "textDocument/didChange",
+        }
+    }
+}
+
+pub fn check_esentials() -> Result<(String, String, String)> {
+    let exe_dir = std::env::current_exe()?.parent().unwrap().to_path_buf();
+    let jar_file = exe_dir.join(
+        "jdt-language-server/plugins/org.eclipse.equinox.launcher_1.6.400.v20210924-0641.jar",
+    );
+    match std::fs::exists(&jar_file) {
         Ok(k) => {
             if !k {
                 panic!("Jdtls launcher jar file not found.")
@@ -21,16 +42,16 @@ pub fn check_esentials() -> Result<(&'static str, &'static str, &'static str)> {
     }
 
     let config_path = if cfg!(target_os = "windows") {
-        "./jdt-language-server/config_win"
+        exe_dir.join("./jdt-language-server/config_win")
     } else if cfg!(target_os = "macos") {
-        "./jdt-language-server/config_macos"
+        exe_dir.join("./jdt-language-server/config_macos")
     } else if cfg!(target_os = "linux") {
-        "./jdt-language-server/config_linux"
+        exe_dir.join("./jdt-language-server/config_linux")
     } else {
         panic!("OS not supported.")
     };
 
-    match std::fs::exists(config_path) {
+    match std::fs::exists(&config_path) {
         Ok(k) => {
             if !k {
                 panic!("The config folder for the jdt-language-sever wasn't found")
@@ -40,9 +61,9 @@ pub fn check_esentials() -> Result<(&'static str, &'static str, &'static str)> {
             panic!("Couldn't acces the jdt-language-server config folder.")
         }
     }
-    let lombok = "./lombok.jar";
+    let lombok = exe_dir.join("lombok.jar");
 
-    match std::fs::exists(lombok) {
+    match std::fs::exists(&lombok) {
         Ok(k) => {
             if !k {
                 panic!("The file \'lombok.jar\' wasn't found.")
@@ -51,7 +72,11 @@ pub fn check_esentials() -> Result<(&'static str, &'static str, &'static str)> {
         Err(_) => panic!("Couldn't acces the \'lombok.jar\' file."),
     }
 
-    Ok((jar_file, config_path, lombok))
+    let jar_file_str = String::from(jar_file.to_str().unwrap());
+    let config_path_str = String::from(config_path.to_str().unwrap());
+    let lombok_str = String::from(lombok.to_str().unwrap());
+
+    Ok((jar_file_str, config_path_str, lombok_str))
 }
 
 #[derive(Debug)]
@@ -61,56 +86,116 @@ pub struct JavaLspConnection {
 }
 
 impl JavaLspConnection {
-    pub async fn new(workspace_path: &str) -> Result<Self> {
+    pub async fn new(client: &Client, workspace_path: &str) -> Result<Self> {
         let (jar_file, config_path, lombok_jar) = match check_esentials() {
             Ok(k) => k,
             Err(e) => {
                 panic!(
-                    "Somehting wen wrong when checking for dependencies: {}",
+                    "Somehting went wrong when checking for dependencies: {}",
                     e.to_string()
                 )
             }
         };
         let mut child = Command::new("java")
             .args([
-                "--Declipse.application=org.eclipse.jdt.ls.core.id1",
+                "-Declipse.application=org.eclipse.jdt.ls.core.id1",
                 "-Dosgi.bundles.defaultStartLevel=4",
-                "-Dosgi.bundles.defaultStartLevel=4 -Declipse.product=org.eclipse.jdt.ls.core.product",
+                "-Declipse.product=org.eclipse.jdt.ls.core.product",
                 "-Dosgi.checkConfiguration=true",
-                format!("-Dosgi.sharedConfiguration.area={}/{}", config_path, "config.ini").as_str(),
+                &format!("-Dosgi.sharedConfiguration.area={}", config_path),
                 "-Dosgi.sharedConfiguration.area.readOnly=true",
                 "-Dosgi.configuration.cascaded=true",
                 "-Xms1G",
                 "--add-modules=ALL-SYSTEM",
                 "--add-opens",
                 "java.base/java.util=ALL-UNNAMED",
-                format!("-javaagent:{}", lombok_jar).as_str(),
+                &format!("-javaagent:{}", lombok_jar),
                 "-jar",
-                jar_file,
+                &jar_file,
                 "-configuration",
-                config_path,
+                &config_path,
                 "-data",
-                workspace_path,
+                &workspace_path,
             ])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .spawn()?;
 
+        let mut stdin = child.stdin.take().unwrap();
+        let mut stdout = BufReader::new(child.stdout.take().unwrap());
+
+        let init = json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "processId": std::process::id(),
+                "rootUri": null,
+                "capabilities": {}
+            }
+        });
+        let init_str = serde_json::to_string(&init)?;
+
+        let header = format!("Content-Length: {}\r\n\r\n", init_str.len());
+        stdin.write_all(header.as_bytes()).await?;
+        stdin.write_all(init_str.as_bytes()).await?;
+        stdin.flush().await?;
+
+        let mut content_length = None;
+
+        loop {
+            let mut line = String::new();
+            stdout.read_line(&mut line).await?;
+            if line.trim().is_empty() {
+                break;
+            };
+            if line.starts_with("Content-Length:") {
+                let len = line["Content-Length:".len()..].trim().parse::<usize>()?;
+                content_length = Some(len);
+            }
+        }
+        let len = content_length.expect("No Content-Length found");
+        let mut buf = vec![0; len];
+        stdout.read_exact(&mut buf).await?;
+        client
+            .log_message(MessageType::INFO, String::from_utf8_lossy(&buf))
+            .await;
+
+        let init_notif = json!({
+            "jsonrpc": "2.0",
+            "method": "initialized",
+            "params": {}
+        });
+        let notif_str = serde_json::to_string(&init_notif)?;
+        let header = format!("Content-Length: {}\r\n\r\n", notif_str.len());
+        stdin.write_all(header.as_bytes()).await?;
+        stdin.write_all(notif_str.as_bytes()).await?;
+        stdin.flush().await?;
+
         Ok(JavaLspConnection {
-            stdin: tokio::sync::Mutex::new(child.stdin.take().ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::Other, "Failed to open stdin")
-            })?),
-            stdout: tokio::sync::Mutex::new(BufReader::new(child.stdout.take().ok_or_else(
-                || std::io::Error::new(std::io::ErrorKind::Other, "Failed to open stdout"),
-            )?)),
+            stdin: tokio::sync::Mutex::new(stdin),
+            stdout: tokio::sync::Mutex::new(stdout),
         })
     }
 
-    pub async fn send_message(&self, msg: &str) -> Result<()> {
+    pub async fn send_message(&self, msg: &str, uri: &Url, method: JavaLspMethod) -> Result<()> {
         let mut stdin = self.stdin.lock().await;
-        let json = serde_json::to_string(msg)?;
-        let content = format!("Content-Length: {}\r\n\r\n{}", json.len(), json);
-        stdin.write_all(content.as_bytes()).await?;
+        let json = json!({
+            "jsonrpc": "2.0",
+            "method": method.value(),
+            "params": {
+            "textDocument": {
+                "uri": uri,
+                "languageId": "java",
+                "version": 1,
+                "text": msg,
+            }
+        }
+        });
+        let msg = serde_json::to_string(&json)?;
+        let header = format!("Content-Length: {}\r\n\r\n", msg.len());
+        stdin.write_all(header.as_bytes()).await?;
+        stdin.write_all(msg.as_bytes()).await?;
         stdin.flush().await?;
 
         Ok(())

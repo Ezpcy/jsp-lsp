@@ -1,6 +1,6 @@
 mod java_backend;
 
-use java_backend::java_lsp_connections::JavaLspConnection;
+use java_backend::java_lsp_connections::{JavaLspConnection, JavaLspMethod};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -53,10 +53,13 @@ impl LanguageServer for Backend {
             }
         };
 
-        let lsp = JavaLspConnection::new(workspace_path.as_str()).await;
+        let lsp = JavaLspConnection::new(&self.client, workspace_path.as_str()).await;
         match lsp {
             Ok(res) => {
                 self.java_lsp.lock().await.replace(res);
+                self.client
+                    .log_message(MessageType::INFO, "Java LSP succesfully initiated.")
+                    .await;
             }
             Err(e) => {
                 self.client
@@ -92,6 +95,7 @@ impl LanguageServer for Backend {
         self.validate_text(
             params.text_document.uri.clone(),
             params.text_document.text.clone(),
+            JavaLspMethod::DidOpen,
         )
         .await;
         self.client
@@ -104,8 +108,12 @@ impl LanguageServer for Backend {
             self.client
                 .log_message(MessageType::INFO, change.text.clone())
                 .await;
-            self.validate_text(params.text_document.uri, change.text.clone())
-                .await;
+            self.validate_text(
+                params.text_document.uri,
+                change.text.clone(),
+                JavaLspMethod::DidChange,
+            )
+            .await;
         }
     }
 
@@ -122,38 +130,6 @@ impl LanguageServer for Backend {
             range: None,
         }))
     }
-}
-
-const HELP: &str = r#"
-Jsp-lsp written in Rust
-Usage: jsp-lsp --stdio -p <PathToJdtLangServer> -c <PathToConfigDirectory>
-
-Arguments:
-    -p  Path to the jdt language server jar file
-    -c  Path to the JDT LS config directory (e.g. config_linux)
-"#;
-
-pub enum ArgErrorType {
-    DuplicateFlag,
-    NoPathProvided,
-    UnknownArgument,
-    Help,
-}
-
-pub fn argument_error(error_type: ArgErrorType) {
-    match error_type {
-        ArgErrorType::DuplicateFlag => {
-            println!("Duplicate flag passed");
-        }
-        ArgErrorType::NoPathProvided => {
-            println!("No path provided");
-        }
-        ArgErrorType::UnknownArgument => {
-            println!("Unknown Argument");
-        }
-        _ => {}
-    }
-    println!("{}", HELP);
 }
 
 #[tokio::main]
