@@ -10,12 +10,9 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 #[derive(Debug, Clone)]
 pub struct Backend {
-    path: String,
-    config_path: String,
     client: Client,
     java_lsp: Arc<Mutex<Option<JavaLspConnection>>>,
 }
-
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
@@ -37,20 +34,35 @@ impl LanguageServer for Backend {
                 .to_string_lossy()
                 .replace("/", "_")
                 .replace("\\", "_");
-            
+
             let ws_path = base_dir.join(escaped);
 
             std::fs::create_dir_all(&ws_path).ok().unwrap();
-            
-            ws_path
+
+            match ws_path.to_str() {
+                Some(k) => k.to_owned(),
+                None => {
+                    self.client
+                        .log_message(
+                            MessageType::ERROR,
+                            "Unable to conver the workspace path to string.",
+                        )
+                        .await;
+                    panic!("Unable to conver the workspace path to string.")
+                }
+            }
         };
-        
-        let lsp =  JavaLspConnection::new(self.path.to_owned(), self.config_path.to_owned(), workspace_path.to_str().unwrap()).await;
+
+        let lsp = JavaLspConnection::new(workspace_path.as_str()).await;
         match lsp {
             Ok(res) => {
                 self.java_lsp.lock().await.replace(res);
-            },
-            Err(e) => self.client.log_message(MessageType::ERROR, e.to_string()).await,
+            }
+            Err(e) => {
+                self.client
+                    .log_message(MessageType::ERROR, e.to_string())
+                    .await
+            }
         }
 
         Ok(InitializeResult {
@@ -146,77 +158,10 @@ pub fn argument_error(error_type: ArgErrorType) {
 
 #[tokio::main]
 async fn main() {
-    let mut seen: HashSet<char> = HashSet::new();
-    let mut args: Vec<String> = std::env::args().collect();
-    let (mut path, mut config_path) = ("", "");
-    args.remove(0);
-    if args.is_empty() {
-        argument_error(ArgErrorType::Help);
-        return;
-    }
-    let mut is_read = false;
-    for i in 1..args.len() {
-        if is_read {
-            is_read = false;
-            continue;
-        }
-        let arg: &str = args[i].as_ref();
-        if arg == "--stdio" {
-            continue;
-        }
-
-        if arg.starts_with("-") {
-            let flag = arg.to_string().remove(1);
-            match flag {
-                'p' => {
-                    if seen.contains(&flag) {
-                        argument_error(ArgErrorType::DuplicateFlag);
-                    } else {
-                        seen.insert(flag);
-                    }
-                    if let Some(value) = args.get(i + 1) {
-                        is_read = true;
-                        path = value;
-                    } else {
-                        argument_error(ArgErrorType::NoPathProvided);
-                        return;
-                    }
-                }
-                'c' => {
-                    if seen.contains(&flag) {
-                        argument_error(ArgErrorType::DuplicateFlag);
-                    } else {
-                        seen.insert(flag);
-                    }
-                    if let Some(value) = args.get(i + 1) {
-                        is_read = true;
-                        config_path = value;
-                    } else {
-                        argument_error(ArgErrorType::NoPathProvided);
-                        return;
-                    }
-                }
-                'h' => {
-                    argument_error(ArgErrorType::Help);
-                    return;
-                }
-                _ => {
-                    argument_error(ArgErrorType::UnknownArgument);
-                    return;
-                }
-            };
-        } else {
-            argument_error(ArgErrorType::UnknownArgument);
-            return;
-        }
-    }
-
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
 
-    let (service, socket) = LspService::new(|client| Backend { 
-        path : path.into(),
-        config_path: config_path.into(),
+    let (service, socket) = LspService::new(|client| Backend {
         client,
         java_lsp: Arc::new(Mutex::new(None)),
     });

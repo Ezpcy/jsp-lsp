@@ -1,5 +1,5 @@
 import * as path from "path";
-import { ExtensionContext, workspace, window, commands } from "vscode";
+import { ExtensionContext, window } from "vscode";
 import {
   LanguageClient,
   LanguageClientOptions,
@@ -11,34 +11,13 @@ let client: LanguageClient;
 
 export function activate(ctx: ExtensionContext) {
   try {
-    const config = workspace.getConfiguration("jspLsp");
-    const jar = config.get<string>("javaLauncherJar");
-    const cfg = config.get<string>("javaConfigDir");
-
-    if (!jar || !cfg) {
-      window
-        .showErrorMessage(
-          "JSP LSP: Java LSP is not correctly configured.",
-          "Open Settings"
-        )
-        .then((selection) => {
-          if (selection === "Open Settings") {
-            commands.executeCommand(
-              "workbench.action.openSettings",
-              "vscode://settings/jspLsp"
-            );
-          }
-        });
-      return;
-    }
-
     const exe =
       process.env.JSP_LSP_BIN ??
       path.join(ctx.extensionPath, "..", "target", "release", "jsp-lsp");
 
     const serverOptions: ServerOptions = {
       command: exe,
-      args: ["--stdio", "-p", jar!, "-c", cfg!],
+      args: ["--stdio"],
       transport: TransportKind.stdio,
     };
 

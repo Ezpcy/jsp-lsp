@@ -1,10 +1,58 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use log::error;
 use std::io::Result as IoResult;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{ChildStdin, ChildStdout, Command},
 };
+
+pub fn check_esentials() -> Result<(&'static str, &'static str, &'static str)> {
+    let jar_file =
+        "./jdt-language-server/plugins/org.eclipse.equinox.launcher_1.6.400.v20210924-0641.jar";
+    match std::fs::exists(jar_file) {
+        Ok(k) => {
+            if !k {
+                panic!("Jdtls launcher jar file not found.")
+            }
+        }
+        Err(_) => {
+            panic!("Couldn't acces the jdt-language-server folder.")
+        }
+    }
+
+    let config_path = if cfg!(target_os = "windows") {
+        "./jdt-language-server/config_win"
+    } else if cfg!(target_os = "macos") {
+        "./jdt-language-server/config_macos"
+    } else if cfg!(target_os = "linux") {
+        "./jdt-language-server/config_linux"
+    } else {
+        panic!("OS not supported.")
+    };
+
+    match std::fs::exists(config_path) {
+        Ok(k) => {
+            if !k {
+                panic!("The config folder for the jdt-language-sever wasn't found")
+            }
+        }
+        Err(_) => {
+            panic!("Couldn't acces the jdt-language-server config folder.")
+        }
+    }
+    let lombok = "./lombok.jar";
+
+    match std::fs::exists(lombok) {
+        Ok(k) => {
+            if !k {
+                panic!("The file \'lombok.jar\' wasn't found.")
+            }
+        }
+        Err(_) => panic!("Couldn't acces the \'lombok.jar\' file."),
+    }
+
+    Ok((jar_file, config_path, lombok))
+}
 
 #[derive(Debug)]
 pub struct JavaLspConnection {
@@ -13,27 +61,34 @@ pub struct JavaLspConnection {
 }
 
 impl JavaLspConnection {
-    pub async fn new(path: String, config_path: String, workspace_path: &str) -> Result<Self> {
+    pub async fn new(workspace_path: &str) -> Result<Self> {
+        let (jar_file, config_path, lombok_jar) = match check_esentials() {
+            Ok(k) => k,
+            Err(e) => {
+                panic!(
+                    "Somehting wen wrong when checking for dependencies: {}",
+                    e.to_string()
+                )
+            }
+        };
         let mut child = Command::new("java")
             .args([
                 "--Declipse.application=org.eclipse.jdt.ls.core.id1",
                 "-Dosgi.bundles.defaultStartLevel=4",
                 "-Dosgi.bundles.defaultStartLevel=4 -Declipse.product=org.eclipse.jdt.ls.core.product",
                 "-Dosgi.checkConfiguration=true",
-                // TODO 
-                // /home/ezpz/.local/share/nvim/mason/share/jdtls/config for the one below to parse
-                format!("-Dosgi.sharedConfiguration.area={}", config_path.as_str()).as_str(),
+                format!("-Dosgi.sharedConfiguration.area={}/{}", config_path, "config.ini").as_str(),
                 "-Dosgi.sharedConfiguration.area.readOnly=true",
                 "-Dosgi.configuration.cascaded=true",
                 "-Xms1G",
                 "--add-modules=ALL-SYSTEM",
                 "--add-opens",
                 "java.base/java.util=ALL-UNNAMED",
-                "-javaagent:lombok.jar",
+                format!("-javaagent:{}", lombok_jar).as_str(),
                 "-jar",
-                path.as_str(),
+                jar_file,
                 "-configuration",
-                config_path.as_str(),
+                config_path,
                 "-data",
                 workspace_path,
             ])
